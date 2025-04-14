@@ -1,111 +1,141 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File
-from pydantic import BaseModel
-import firebase_admin
-from firebase_admin import auth, credentials
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
 import google.generativeai as genai
 import os
-import os
-import csv
-import io
+import json
+import uuid
+from google.cloud import pubsub_v1
 from dotenv import load_dotenv
-
-# Initialize Firebase Admin SDK
-# cred = credentials.Certificate("firebase_service_account.json")
-# firebase_admin.initialize_app(cred)
-
-# Dependency to verify Firebase ID token
-# async def verify_token(authorization: str = Header(None)):
-#     if not authorization or not authorization.startswith("Bearer "):
-#         raise HTTPException(status_code=401, detail="Unauthorized")
-#     id_token = authorization.split("Bearer ")[1]
-#     try:
-#         decoded_token = auth.verify_id_token(id_token)
-#         return decoded_token
-#     except Exception as e:
-#         raise HTTPException(status_code=401, detail="Invalid token")
+from model import UserLogin, UserRegister, Transaction
+import firebase_admin.auth as firebase_auth
+from firebase import db
+from bigquery import create_transactions_table, client, credentials
+import requests
+from auth import verify_token
+from transactions import extract_transactions_from_pdf
 
 load_dotenv()
 
 api_key=os.getenv("GEMINI_API_KEY")
+firebase_api_key=os.getenv("FIREBASE_API_KEY")
 genai.configure(api_key=api_key)
-print(api_key)
 app = FastAPI()
 
-class Transaction(BaseModel):
-    date: str
-    amount: float
-    description: str
-    category: str
-    
-def parse_csv(file):
-    transactions = []
-    csv_reader = csv.DictReader(io.StringIO(file.decode("utf-8")))
-    for row in csv_reader:
-        transactions.append({
-            "date": row["date"],
-            "amount": float(row["amount"]),
-            "description": row["description"],
-            "balance": float(row["balance"])
-        })
-    return transactions
+publisher = pubsub_v1.PublisherClient()
+topic_path = publisher.topic_path(credentials.project_id, "user_transactions")
 
-
-def categorize_transaction(description):
-    model = genai.GenerativeModel('gemini-2.0-flash')
-    prompt = f"""
-    Categorize the following transaction description into one of these categories:
-    - Food & Dining
-    - Utilities
-    - Shopping
-    - Transportation
-    - Entertainment
-    - Income
-    - Other
-
-    Description: {description}
-    """
-    response = model.generate_content(prompt)
-    return response.text.strip()
-
-@app.post("/process-transactions")
-async def process_transactions(
-    file: UploadFile = File(...),  
-    # decoded_token: dict = Depends(verify_token)
-):
-    # user_id = decoded_token["uid"]
-    # print(f"Processing transactions for user: {user_id}")
-
+@app.post("/register")
+def register_user(user: UserRegister):
     try:
-        file_content = await file.read()
-        transactions = parse_csv(file_content)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error parsing CSV: {str(e)}")
+        firebase_user = firebase_auth.create_user(
+            email=user.email,
+            password=user.password
+        )
 
-    categorized_transactions = []
-    for transaction in transactions:
-        category = categorize_transaction(transaction["description"])
-        categorized_transactions.append({
-            **transaction,
-            "category": category,
-            "type": "income" if transaction["amount"] >= 0 else "expense"
+        user_ref = db.collection("users").document(firebase_user.uid)
+        user_ref.set({
+            "full_name": user.full_name,
+            "email": user.email,
+            "user_id": firebase_user.uid
         })
 
-    prompt = "Analyze the following financial data and provide insights:\n"
-    for transaction in categorized_transactions:
-        prompt += f"- {transaction['date']}: {transaction['description']} (${abs(transaction['amount'])}, {transaction['type']}, {transaction['category']}, Balance: ${transaction['balance']})\n"
+        return {"message": "User registered successfully", "user_id": firebase_user.uid}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    prompt += """
-    Insights should include:
-    1. Spending trends over time.
-    2. Budget recommendations.
-    3. Savings tips.
-    4. Balance trends and suggestions for improving savings.
+@app.post("/login")
+def login(user: UserLogin):
+    url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={firebase_api_key}"
+    payload = {"email": user.email, "password": user.password, "returnSecureToken": True}
+    
+    response = requests.post(url, json=payload)
+    print(response)
+    if response.status_code != 200:
+        raise HTTPException(status_code=400, detail="Invalid credentials")
+
+    user_info = response.json()
+    uid = user_info.get("localId")  # Firebase UID
+
+    user_ref = db.collection("users").document(uid)
+    user_doc = user_ref.get()
+
+    if not user_doc.exists:
+        raise HTTPException(status_code=404, detail="User not found in Firestore")
+
+    return {"idToken": user_info["idToken"], "message": "Login successful"}
+
+@app.post("/upload-pdf")
+async def upload_pdf(file: UploadFile = File(...), token: dict = Depends(verify_token)):
+    user_id = token["user_id"]
+    print(user_id)
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+
+    file_path = f"temp_{file.filename}"
+    with open(file_path, "wb") as f:
+        f.write(await file.read())
+
+    transactions = extract_transactions_from_pdf(file_path)
+    
+    if not transactions:
+        raise HTTPException(status_code=400, detail="No transactions found")
+
+    enriched_transactions = [{
+        **txn,
+        "transaction_id": str(uuid.uuid4()),
+        "user_id": user_id, 
+    } for txn in transactions]
+    
+    # table_ref = client.dataset("trans_dataset").table("user_transactions")
+    # errors = client.insert_rows_json(
+    #     table=table_ref,
+    #     json_rows=enriched_transactions,
+    #     ignore_unknown_values=True
+    # )
+    # if errors:
+    #     raise HTTPException(400, f"BigQuery errors: {errors}")
+    for txn in enriched_transactions:
+        future = publisher.publish(topic_path, json.dumps(txn).encode("utf-8"))
+        # future.result()  # Optional: waits for the publish to complete
+
+    return {"transactions": transactions}
+
+@app.get("/spending-trends")
+async def upload_pdf(token: dict = Depends(verify_token)):
+    user_id = token['user_id']
+    full_table = f'{credentials.project_id}.trans_dataset.user_transactions'
+    query = f"""
+     WITH base AS (
+  SELECT
+    EXTRACT(YEAR FROM date) AS year,
+    EXTRACT(MONTH FROM date) AS month,
+    category,
+    SUM(amount) AS total_spent
+  FROM `{full_table}`
+  WHERE amount < 0
+  GROUP BY year, month, category
+),
+ranked AS (
+  SELECT *,
+    ROW_NUMBER() OVER (
+      PARTITION BY year, month
+      ORDER BY total_spent ASC
+    ) AS rank
+  FROM base
+)
+SELECT *
+FROM ranked
+WHERE rank = 1
+ORDER BY year, month
     """
+    monthly_trends = client.query(query).to_dataframe()
+    monthly_trends_json_str = json.dumps(monthly_trends.to_dict(orient="records"), indent=2)
 
-    model = genai.GenerativeModel('gemini-2.0-flash')
-    response = model.generate_content(prompt)
-    return {"insights": response.text, "transactions": categorized_transactions}
+    monthly_trends_json = monthly_trends.to_dict(orient="records")
+
+    return monthly_trends_json
+
 
 if __name__ == "__main__":
+    create_transactions_table()
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
