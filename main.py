@@ -8,6 +8,7 @@ import os
 import csv
 import io
 from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware
 
 # Initialize Firebase Admin SDK
 # cred = credentials.Certificate("firebase_service_account.json")
@@ -30,6 +31,14 @@ api_key=os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=api_key)
 print(api_key)
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (frontend localhost:3000)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class Transaction(BaseModel):
     date: str
