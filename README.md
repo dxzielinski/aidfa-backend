@@ -20,3 +20,30 @@ GEMINI_API_KEY=your_gemini_api_key_here
 ```bash
 python main.py
 ```
+
+## Frontend (React)
+
+### Installation
+
+Move into the `frontend/` directory:
+
+```bash
+cd frontend
+npm install
+```
+
+This will install all necessary frontend packages.
+
+### Running Frontend Server
+
+```bash
+npm start
+```
+
+This will start the React app at:
+
+```
+http://localhost:3000/
+```
+
+**Important:** Make sure the backend server is running at `http://localhost:8000/` when using the frontend.
