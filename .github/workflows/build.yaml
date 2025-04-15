@@ -30,7 +30,11 @@ jobs:
           project_id: '${{ secrets.GCP_PROJECT }}'
 
       - name: 'Configure Docker for Google Cloud'
-        run: gcloud auth configure-docker
+        run: |
+          echo "${{ secrets.ENV }}" | base64 -d > .env
+          echo "${{ secrets.JSON }}" | base64 -d > cert.json
+          gcloud auth configure-docker
+
 
       - name: 'Build and Push Container'
         run: |-
