@@ -15,7 +15,9 @@ from transactions import extract_transactions_from_pdf
 
 load_dotenv()
 
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv(
+    "GOOGLE_APPLICATION_CREDENTIALS"
+)
 
 api_key = os.getenv("GEMINI_API_KEY")
 firebase_api_key = os.getenv("FIREBASE_API_KEY")
@@ -28,7 +30,9 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # or ["*"] for full access
+    allow_origins=[
+        "https://frontend-ozux64yezq-lm.a.run.app/"
+    ],  # or ["*"] for full access
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
