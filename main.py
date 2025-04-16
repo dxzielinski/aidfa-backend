@@ -31,7 +31,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://frontend-ozux64yezq-lm.a.run.app/"
+        "https://frontend-ozux64yezq-lm.a.run.app"
     ],  # or ["*"] for full access
     allow_credentials=True,
     allow_methods=["*"],
