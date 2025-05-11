@@ -12,6 +12,8 @@ from bigquery import create_transactions_table, client, credentials
 import requests
 from auth import verify_token
 from transactions import extract_transactions_from_pdf
+import datetime
+from firebase_admin import firestore
 
 load_dotenv()
 
@@ -134,37 +136,116 @@ async def upload_pdf(token: dict = Depends(verify_token)):
     user_id = token["user_id"]
     full_table = f"{credentials.project_id}.trans_dataset.user_transactions"
     query = f"""
-     WITH base AS (
-  SELECT
-    EXTRACT(YEAR FROM date) AS year,
-    EXTRACT(MONTH FROM date) AS month,
-    category,
-    SUM(amount) AS total_spent
-  FROM `{full_table}`
-  WHERE amount < 0
-  GROUP BY year, month, category
-),
-ranked AS (
-  SELECT *,
-    ROW_NUMBER() OVER (
-      PARTITION BY year, month
-      ORDER BY total_spent ASC
-    ) AS rank
-  FROM base
-)
-SELECT *
-FROM ranked
-WHERE rank = 1
-ORDER BY year, month
+        WITH base AS (
+        SELECT
+            EXTRACT(YEAR FROM date) AS year,
+            EXTRACT(MONTH FROM date) AS month,
+            category,
+            SUM(amount) AS total_spent
+        FROM `{full_table}`
+        WHERE amount < 0 AND user_id = '{user_id}'
+        GROUP BY year, month, category
+        ),
+        ranked AS (
+        SELECT *,
+            ROW_NUMBER() OVER (
+            PARTITION BY year, month
+            ORDER BY total_spent ASC
+            ) AS rank
+        FROM base
+        )
+        SELECT *
+        FROM ranked
+        WHERE rank = 1
+        ORDER BY year, month
     """
     monthly_trends = client.query(query).to_dataframe()
-    monthly_trends_json_str = json.dumps(
-        monthly_trends.to_dict(orient="records"), indent=2
-    )
 
     monthly_trends_json = monthly_trends.to_dict(orient="records")
-
+    for record in monthly_trends_json:
+        year = int(record["year"])
+        month = int(record["month"])
+        doc_id = f"{year:04d}-{month:02d}"  # 2025-05
+        doc_ref = db.collection("analysis_summaries").document(user_id).collection("spending_trends").document(doc_id)
+        doc_ref.set(record)
     return monthly_trends_json
+
+@app.get("/analysis/spending-trends")
+def get_spending_trends_analysis(token: dict = Depends(verify_token)):
+    user_id = token["user_id"]
+
+    collection_ref = (
+        db.collection("analysis_summaries")
+        .document(user_id)
+        .collection("spending_trends")
+    )
+
+    docs = collection_ref.order_by("__name__", direction=firestore.Query.DESCENDING).stream()
+
+    trends = [doc.to_dict() | {"month_id": doc.id} for doc in docs]
+    
+    return {"user_id": user_id, "spending_trends": trends}
+
+
+@app.get("/predictions/spending")
+def get_user_predictions(token: dict = Depends(verify_token)):
+    user_id = token["user_id"]
+    full_model = f"{credentials.project_id}.trans_dataset.spending_forecast_model"
+    query = f"""
+    SELECT
+      user_id,
+      forecast_timestamp,
+      forecast_value,
+      prediction_interval_lower_bound,
+      prediction_interval_upper_bound
+    FROM ML.FORECAST(
+      MODEL `{full_model}`,
+      STRUCT(3 AS horizon, 0.8 AS confidence_level)
+    )
+    WHERE user_id = '{user_id}'
+    """
+
+    forecast = client.query(query).to_dataframe()
+
+    readable_output = []
+    history_doc_id = str(uuid.uuid4())
+
+    for _, row in forecast.iterrows():
+        entry = {
+            "month": row["forecast_timestamp"].strftime("%B %Y"),
+            "expected_spending": float(row["forecast_value"]),
+            "range": {
+                "lower": float(row["prediction_interval_lower_bound"]),
+                "upper": float(row["prediction_interval_upper_bound"]),
+            }
+        }
+        readable_output.append(entry)
+
+    doc_ref = db.collection("users").document(user_id).collection("prediction_history").document(history_doc_id)
+    doc_ref.set({
+        "created_at": datetime.datetime.now(datetime.timezone.utc),
+        "predictions": readable_output
+    })
+
+    return {"user_id": user_id, "predictions": readable_output}
+
+@app.get("/predictions/history")
+def get_prediction_history(token: dict = Depends(verify_token)):
+    user_id = token["user_id"]
+
+    history_ref = db.collection("users").document(user_id).collection("prediction_history")
+    docs = history_ref.order_by("created_at", direction=firestore.Query.DESCENDING).stream()
+
+    history = []
+    for doc in docs:
+        data = doc.to_dict()
+        history.append({
+            "id": doc.id,
+            "created_at": data.get("created_at"),
+            "predictions": data.get("predictions", [])
+        })
+
+    return {"user_id": user_id, "history": history}
 
 
 if __name__ == "__main__":
