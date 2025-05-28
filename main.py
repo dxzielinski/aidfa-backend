@@ -24,7 +24,6 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv(
 api_key = os.getenv("GEMINI_API_KEY")
 firebase_api_key = os.getenv("FIREBASE_API_KEY")
 genai.configure(api_key=api_key)
-app = FastAPI()
 
 from fastapi.middleware.cors import CORSMiddleware
 
