@@ -40,3 +40,13 @@ jobs:
         run: |-
           docker build --tag "${{ secrets.DOCKER_TAG }}" .
           docker push "${{ secrets.DOCKER_TAG }}"
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service:    ${{ secrets.CLOUD_RUN_SERVICE }}
+          image:      ${{ secrets.DOCKER_TAG }}
+          project_id: ${{ secrets.GCP_PROJECT }}
+
+      - name: 'Use output'
+        run: 'curl "${{ steps.deploy.outputs.url }}"'
