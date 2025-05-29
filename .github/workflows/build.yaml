@@ -46,6 +46,7 @@ jobs:
         with:
           service:    ${{ secrets.CLOUD_RUN_SERVICE }}
           image:      ${{ secrets.DOCKER_TAG }}
+          region:     'europe-central2'
           project_id: ${{ secrets.GCP_PROJECT }}
 
       - name: 'Use output'
