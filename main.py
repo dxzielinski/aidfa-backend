@@ -32,7 +32,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://frontend-ozux64yezq-lm.a.run.app"
+        "https://aidfa-frontend-804472887420.europe-central2.run.app/"
     ],  # or ["*"] for full access
     allow_credentials=True,
     allow_methods=["*"],
@@ -165,9 +165,15 @@ async def upload_pdf(token: dict = Depends(verify_token)):
         year = int(record["year"])
         month = int(record["month"])
         doc_id = f"{year:04d}-{month:02d}"  # 2025-05
-        doc_ref = db.collection("analysis_summaries").document(user_id).collection("spending_trends").document(doc_id)
+        doc_ref = (
+            db.collection("analysis_summaries")
+            .document(user_id)
+            .collection("spending_trends")
+            .document(doc_id)
+        )
         doc_ref.set(record)
     return monthly_trends_json
+
 
 @app.get("/analysis/spending-trends")
 def get_spending_trends_analysis(token: dict = Depends(verify_token)):
@@ -179,10 +185,12 @@ def get_spending_trends_analysis(token: dict = Depends(verify_token)):
         .collection("spending_trends")
     )
 
-    docs = collection_ref.order_by("__name__", direction=firestore.Query.DESCENDING).stream()
+    docs = collection_ref.order_by(
+        "__name__", direction=firestore.Query.DESCENDING
+    ).stream()
 
     trends = [doc.to_dict() | {"month_id": doc.id} for doc in docs]
-    
+
     return {"user_id": user_id, "spending_trends": trends}
 
 
@@ -216,33 +224,47 @@ def get_user_predictions(token: dict = Depends(verify_token)):
             "range": {
                 "lower": float(row["prediction_interval_lower_bound"]),
                 "upper": float(row["prediction_interval_upper_bound"]),
-            }
+            },
         }
         readable_output.append(entry)
 
-    doc_ref = db.collection("users").document(user_id).collection("prediction_history").document(history_doc_id)
-    doc_ref.set({
-        "created_at": datetime.datetime.now(datetime.timezone.utc),
-        "predictions": readable_output
-    })
+    doc_ref = (
+        db.collection("users")
+        .document(user_id)
+        .collection("prediction_history")
+        .document(history_doc_id)
+    )
+    doc_ref.set(
+        {
+            "created_at": datetime.datetime.now(datetime.timezone.utc),
+            "predictions": readable_output,
+        }
+    )
 
     return {"user_id": user_id, "predictions": readable_output}
+
 
 @app.get("/predictions/history")
 def get_prediction_history(token: dict = Depends(verify_token)):
     user_id = token["user_id"]
 
-    history_ref = db.collection("users").document(user_id).collection("prediction_history")
-    docs = history_ref.order_by("created_at", direction=firestore.Query.DESCENDING).stream()
+    history_ref = (
+        db.collection("users").document(user_id).collection("prediction_history")
+    )
+    docs = history_ref.order_by(
+        "created_at", direction=firestore.Query.DESCENDING
+    ).stream()
 
     history = []
     for doc in docs:
         data = doc.to_dict()
-        history.append({
-            "id": doc.id,
-            "created_at": data.get("created_at"),
-            "predictions": data.get("predictions", [])
-        })
+        history.append(
+            {
+                "id": doc.id,
+                "created_at": data.get("created_at"),
+                "predictions": data.get("predictions", []),
+            }
+        )
 
     return {"user_id": user_id, "history": history}
 
