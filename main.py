@@ -133,7 +133,7 @@ async def upload_pdf(file: UploadFile = File(...), token: dict = Depends(verify_
 
 
 @app.get("/spending-trends")
-async def upload_pdf(token: dict = Depends(verify_token)):
+async def spending_trends(token: dict = Depends(verify_token)):
     user_id = token["user_id"]
     full_table = f"{credentials.project_id}.trans_dataset.user_transactions"
     query = f"""
