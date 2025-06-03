@@ -1,11 +1,13 @@
+import os
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
-credentials = service_account.Credentials.from_service_account_file(
-    'cert.json',
-    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+cert = os.getenv("BACKEND_SERVICE_ACCOUNT")
+credentials = service_account.Credentials.from_service_account_info(
+    cert, scopes=["https://www.googleapis.com/auth/cloud-platform"]
 )
 client = bigquery.Client(project=credentials.project_id, credentials=credentials)
+
 
 def create_transactions_table():
     schema = [
@@ -17,17 +19,18 @@ def create_transactions_table():
         bigquery.SchemaField("balance", "FLOAT64", mode="REQUIRED"),
     ]
     table_ref = client.dataset("trans_dataset").table("user_transactions")
-   
+
     try:
         client.get_table(table_ref)  # Returns table if exists
         print("Table already exists! Skipping creation.")
         return
-    except Exception:  
+    except Exception:
         pass
-    
+
     table = bigquery.Table(table_ref, schema=schema)
     client.create_table(table)
     print("Fresh new table created! ✨")
+
 
 try:
     datasets = list(client.list_datasets())
