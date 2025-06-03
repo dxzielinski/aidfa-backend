@@ -32,8 +32,9 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "*",
         "https://aidfa-frontend-804472887420.europe-central2.run.app",
-        "http://localhost:3000"
+        "http://localhost:3000",
     ],  # or ["*"] for full access
     allow_credentials=True,
     allow_methods=["*"],
