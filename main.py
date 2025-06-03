@@ -17,9 +17,7 @@ from firebase_admin import firestore
 
 load_dotenv()
 
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv(
-    "GOOGLE_APPLICATION_CREDENTIALS"
-)
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("BACKEND_SERVICE_ACCOUNT")
 
 api_key = os.getenv("GEMINI_API_KEY")
 firebase_api_key = os.getenv("FIREBASE_API_KEY")
