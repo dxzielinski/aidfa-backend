@@ -1,8 +1,10 @@
 import os
+import json
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
 cert = os.getenv("BACKEND_SERVICE_ACCOUNT")
+cert = json.loads(cert) if isinstance(cert, str) else cert
 credentials = service_account.Credentials.from_service_account_info(
     cert, scopes=["https://www.googleapis.com/auth/cloud-platform"]
 )
