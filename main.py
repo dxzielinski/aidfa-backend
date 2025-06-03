@@ -45,7 +45,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-publisher = pubsub_v1.PublisherClient()
+publisher = pubsub_v1.PublisherClient(credentials=credentials)
 topic_path = publisher.topic_path(credentials.project_id, "user_transactions")
 
 
