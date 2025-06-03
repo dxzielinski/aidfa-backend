@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
+import tempfile
 import google.generativeai as genai
 import os
 import json
@@ -16,8 +17,13 @@ import datetime
 from firebase_admin import firestore
 
 load_dotenv()
+raw_json = os.getenv("BACKEND_SERVICE_ACCOUNT")
+with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as tf:
+    tf.write(raw_json)
+    tf.flush()
+    temp_path = tf.name
 
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.getenv("BACKEND_SERVICE_ACCOUNT")
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_path
 
 api_key = os.getenv("GEMINI_API_KEY")
 firebase_api_key = os.getenv("FIREBASE_API_KEY")
